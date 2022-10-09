@@ -8,6 +8,8 @@ package meteordevelopment.meteorclient.systems.hud.elements;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.friends.Friends;
 import meteordevelopment.meteorclient.systems.hud.*;
+import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
@@ -17,6 +19,8 @@ import net.minecraft.entity.player.PlayerEntity;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 import static meteordevelopment.meteorclient.MeteorClient.mc;
 
@@ -24,6 +28,7 @@ public class PlayerRadarHud extends HudElement {
     public static final HudElementInfo<PlayerRadarHud> INFO = new HudElementInfo<>(Hud.GROUP, "player-radar", "Displays players in your visual range.", PlayerRadarHud::new);
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
+    private final SettingGroup sgFilter = settings.createGroup("Filter");
     private final SettingGroup sgScale = settings.createGroup("Scale");
     private final SettingGroup sgBackground = settings.createGroup("Background");
 
@@ -51,6 +56,7 @@ public class PlayerRadarHud extends HudElement {
         .defaultValue(true)
         .build()
     );
+
 
     private final Setting<Boolean> shadow = sgGeneral.add(new BoolSetting.Builder()
         .name("shadow")
@@ -120,6 +126,21 @@ public class PlayerRadarHud extends HudElement {
         .description("Color used for the background.")
         .visible(background::get)
         .defaultValue(new SettingColor(25, 25, 25, 50))
+        .build()
+    );
+
+    private final Setting<Boolean> filterRegex = sgFilter.add(new BoolSetting.Builder()
+        .name("filter-regex")
+        .description("Filter out chat messages that match the regex filter.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<List<String>> regexFilters = sgFilter.add(new StringListSetting.Builder()
+        .name("regex-filter")
+        .description("Regex filter used for filtering chat messages.")
+        .visible(filterRegex::get)
+        .onChanged(strings -> compileFilterRegexList())
         .build()
     );
 
@@ -205,6 +226,11 @@ public class PlayerRadarHud extends HudElement {
         players.addAll(mc.world.getPlayers());
         if (players.size() > limit.get()) players.subList(limit.get() - 1, players.size() - 1).clear();
         players.sort(Comparator.comparingDouble(e -> e.distanceTo(mc.getCameraEntity())));
+        if (filterRegex.get()) {
+            for (Pattern pattern : filterRegexList) {
+                players.removeIf(player -> pattern.matcher(player.getEntityName()).find());
+            }
+        }
 
         return players;
     }
@@ -212,4 +238,24 @@ public class PlayerRadarHud extends HudElement {
     private double getScale() {
         return customScale.get() ? scale.get() : -1;
     }
+
+    // Filter Regex
+
+    private final List<Pattern> filterRegexList = new ArrayList<>();
+
+    private void compileFilterRegexList() {
+        filterRegexList.clear();
+
+        for (int i = 0; i < regexFilters.get().size(); i++) {
+            try {
+                filterRegexList.add(Pattern.compile(regexFilters.get().get(i)));
+            } catch (PatternSyntaxException e) {
+                String removed = regexFilters.get().remove(i);
+                // error
+                ChatUtils.forceNextPrefixClass(getClass());
+                ChatUtils.info(Utils.nameToTitle(INFO.name), "Removing Invalid regex: %s", removed);
+            }
+        }
+    }
+
 }
